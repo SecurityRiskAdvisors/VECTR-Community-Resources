@@ -92,24 +92,22 @@ resource "google_compute_instance" "vectr" {
       startup-script = <<-EOF1
         #!/bin/bash
         sudo su -
-        curl -s -L 'https://github.com/docker/compose/releases/download/1.29.2/docker-compose-Linux-x86_64' -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
         apt-get update
-        apt-get -y install apt-transport-https ca-certificates curl software-properties-common
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-        add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\"
+        apt-get -y install ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        while fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 1; done;
         apt-get update
-        apt-get -y install docker-ce
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
         apt-get -y install mongodb-clients
         apt-get -y install unzip
         apt-get -y install collectd
-        apt-get -y install docker-compose
         mkdir -p /opt/vectr
         echo ${google_compute_address.vectr_external_ip.address} > /home/ubuntu/name.txt
         cd /opt/vectr
         wget https://github.com/SecurityRiskAdvisors/VECTR/releases/download/ce-${var.vectr_version}/sra-vectr-runtime-${var.vectr_version}-ce.zip -P /opt/vectr
         unzip sra-vectr-runtime-${var.vectr_version}-ce.zip
-        cd /opt/vectr/
         NAME=$(head -n 1 /home/ubuntu/name.txt)
         JWS=$(openssl rand -hex 24)
         JWE=$(openssl rand -hex 24)
@@ -118,7 +116,7 @@ resource "google_compute_instance" "vectr" {
         sed -i "s/VECTR_EXTERNAL_HOSTNAME=/VECTR_EXTERNAL_HOSTNAME=$NAME/" .env
         sed -i "s/JWS_KEY=CHANGEME/JWS_KEY=$JWS/" .env
         sed -i "s/JWE_KEY=CHANGEMENOW/JWE_KEY=$JWE/" .env
-        docker-compose up -d
+        docker compose up -d
         EOF
       EOF1
     }
