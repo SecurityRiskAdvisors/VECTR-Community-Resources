@@ -1,0 +1,422 @@
+{
+  "Description": "Vectr Quickstart Template",
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "Instance Settings"
+          },
+          "Parameters": [
+            "VectrAz",
+            "VectrName",
+            "IngressIp"
+          ]
+        }
+      ]
+    }
+  },
+  "Parameters": {
+    "SubnetAZ": {
+      "Description": "Availability Zone to deploy Vectr",
+      "Type": "AWS::EC2::AvailabilityZone::Name"
+    },
+    "VectrName": {
+      "Description": "This will be the VECTR EC2 name",
+      "Type": "String",
+      "MaxLength": "30"
+    },
+    "IngressIp": {
+      "Type": "String",
+      "AllowedPattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}(\\/([0-9]|[1-2][0-9]|3[0-2]))?$",
+      "Description": "An IP for VECTR site access, include /32"
+    }
+  },
+  "Mappings" : {
+    "RegionMap" : {
+      "us-east-1"      : { "HVM64" : "ami-046842448f9e74e7d", "DnsPrefix": "compute-1" },
+      "us-west-1"      : { "HVM64" : "ami-0cbd40f694b804622", "DnsPrefix": "us-west-1.compute" },
+      "eu-west-2"      : { "HVM64" : "ami-0505148b3591e4c07", "DnsPrefix": "eu-west-2.compute" },
+      "eu-central-1"   : { "HVM64" : "ami-06dd92ecc74fdfb36", "DnsPrefix": "eu-central-1.compute" }
+    }
+  },
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "EnableDnsHostnames": "true",
+        "CidrBlock": "172.17.0.0/16",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackId"
+            }
+          },
+          {
+            "Key": "Name",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          }
+        ]
+      }
+    },
+    "EC2SecurityGroupAccess": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": {
+          "Fn::Join": [
+            "",
+            [
+              "",
+              {
+                "Ref": "VectrName"
+              },
+              " Access for EC2"
+            ]
+          ]
+        },
+        "GroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "",
+              {
+                "Ref": "VectrName"
+              },
+              "_SecurityGroup_EC2"
+            ]
+          ]
+        },
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "-1",
+            "ToPort": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "TCP",
+            "FromPort": "443",
+            "ToPort": "443",
+            "CidrIp": {
+              "Ref": "IngressIp"
+            }
+          }
+        ]
+      }
+    },
+    "Subnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "CidrBlock": "172.17.0.0/20",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackId"
+            }
+          }
+        ],
+        "AvailabilityZone": {
+          "Ref": "SubnetAZ"
+        },
+        "MapPublicIpOnLaunch": true
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackId"
+            }
+          }
+        ]
+      }
+    },
+    "AttachGateway": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "RouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackId"
+            }
+          }
+        ]
+      }
+    },
+    "PublicRoute": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "RouteTable"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "SubnetRouteTableAssociation1": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Subnet1"
+        },
+        "RouteTableId": {
+          "Ref": "RouteTable"
+        }
+      }
+    },
+    "NetworkAcl": {
+      "Type": "AWS::EC2::NetworkAcl",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackId"
+            }
+          }
+        ]
+      }
+    },
+    "InboundNetworkAclEntry": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "NetworkAcl"
+        },
+        "RuleNumber": "100",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "OutBoundNetworkAclEntry": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "NetworkAcl"
+        },
+        "RuleNumber": "100",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "Subnet1NetworkAclAssociation": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Subnet1"
+        },
+        "NetworkAclId": {
+          "Ref": "NetworkAcl"
+        }
+      }
+    },
+    "EC2Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets": {
+            "PrepAndInstall": [
+              "DockerPrep",
+              "Install"
+            ]
+          },
+          "Install" : {
+            "packages" : {
+              "apt": {
+                "unzip": [],
+                "curl" : [],
+                "ca-certificates": [],
+                "collectd": [],
+                "jq": [],
+                "gnupg": [],
+                "lsb-release": [],
+                "docker-ce": [],
+                "docker-ce-cli": [],
+                "containerd.io": [],
+                "docker-compose-plugin": []
+              }
+            }
+          },
+          "DockerPrep" : {
+            "commands": {
+              "docker_install": {
+                "command": "mkdir -p /etc/apt/keyrings && curl -fsSL 'https://download.docker.com/linux/ubuntu/gpg' | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | tee /etc/apt/sources.list.d/docker.list > /dev/null && until apt-get update; do sleep 1; done;"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": "25",
+              "Encrypted" : true
+            }
+          }
+        ],
+        "InstanceType": "t3a.medium",
+        "SecurityGroupIds": [
+          {
+            "Ref": "EC2SecurityGroupAccess"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": { "Ref": "VectrName" }
+          }
+        ],
+        "SubnetId": {
+          "Ref": "Subnet1"
+        },
+        "ImageId" : { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "HVM64"]},
+        "Monitoring": "true",
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\n",
+                "sudo su -\n",
+                "until apt-get update; do sleep 1; done;\n",
+                "until apt-get -y install python3-pip; do sleep 1; done;\n",
+                "pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz\n",
+                { "Fn::Sub": "cfn-init -v -s ${AWS::StackId} -r EC2Instance --configsets PrepAndInstall --region ${AWS::Region}\n" },
+                "mkdir -p /opt/vectr\n",
+                "echo ",
+                {
+                  "Ref": "VectrName"
+                },
+                " > /home/ubuntu/name.txt\n",
+                "cd /opt/vectr/\n",
+                "wget $(curl 'https://api.github.com/repos/SecurityRiskAdvisors/VECTR/releases?page=1&per_page=1' | jq -r '.[0].assets[] | select(.browser_download_url | endswith(\".zip\")) | .browser_download_url') -O /opt/vectr/latestRelease.zip\n",
+                "unzip latestRelease.zip\n",
+                "echo $(curl http://169.254.169.254/latest/meta-data/public-ipv4) > /home/ubuntu/ip.txt\n",
+                "sed -i 's/\\./-/g' /home/ubuntu/ip.txt\n",
+                "ADDRESS=ec2-$(head -n 1 /home/ubuntu/ip.txt).",
+                {
+                  "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "DnsPrefix"]
+                },
+                ".amazonaws.com\n",
+                "JWS=$(openssl rand -hex 24)\n",
+                "JWE=$(openssl rand -hex 24)\n",
+                "sed -i 's/VECTR_PORT=8081/VECTR_PORT=443/' .env\n",
+                "sed -i \"s/VECTR_HOSTNAME=sravectr.internal/VECTR_HOSTNAME=$ADDRESS/\" .env\n",
+                "sed -i \"s/VECTR_EXTERNAL_HOSTNAME=/VECTR_EXTERNAL_HOSTNAME=$ADDRESS/\" .env\n",
+                "sed -i \"s/JWS_KEY=CHANGEME/JWS_KEY=$JWS/\" .env\n",
+                "sed -i \"s/JWE_KEY=CHANGEMENOW/JWE_KEY=$JWE/\" .env\n",
+                "docker compose up -d\n",
+                { "Fn::Sub": "cfn-signal -e $? --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}\n" }
+              ]
+            ]
+          }
+        },
+        "IamInstanceProfile": {
+          "Ref": "RootInstanceProfile"
+        }
+      }
+    },
+    "RootInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "VectrEc2OperationsRole"
+          }
+        ]
+      }
+    },
+    "VectrEc2OperationsRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonSSMFullAccess",
+          "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        ],
+        "RoleName": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "_role"
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "Outputs" : {
+    "VectrAddress" : {
+      "Value" : {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            { "Fn::GetAtt" : [ "EC2Instance", "PublicDnsName" ] }
+          ]
+        ]
+      },
+      "Description" : "Vectr Domain Name"
+    }
+  }
+}

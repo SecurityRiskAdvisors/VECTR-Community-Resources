@@ -1,0 +1,12 @@
+{
+  "$schema": "https://aka.ms/azure-quickstart-templates-metadata-schema#",
+  "type": "QuickStart",
+  "itemDisplayName": "Creates an new VECTR instance",
+  "description": "This QuickStart template creates a new VECTR instance in your Azure subscription, which you can use to evaluate the tool.",
+  "summary": "Deploys a new VECTR instance in your Azure subscription",
+  "githubUsername": "ryan-fortin",
+  "dateUpdated": "2023-09-20",
+  "environments": [
+    "AzureCloud"
+  ]
+}

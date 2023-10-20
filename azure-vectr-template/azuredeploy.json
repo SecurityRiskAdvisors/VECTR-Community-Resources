@@ -1,0 +1,227 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vectrName": {
+      "type": "string",
+      "metadata": {
+        "description": "Vectr name (https://vectrName.subscriptionLocation.cloudapp.azure.com)"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Admin password for VM, not VECTR."
+      }
+    },
+    "sourceAddresses": {
+      "type": "string",
+      "metadata": {
+        "description": "Valid CIDR ranges for HTTPS and SSH access to VECTR, comma separated"
+      }
+    },
+    "_artifactsLocation": {
+      "type": "string",
+      "metadata": {
+        "description": "The base URI where artifacts required by this template are located. When the template is deployed using the accompanying scripts, a private location in the subscription will be used and this value will be automatically generated."
+      },
+      "defaultValue": "[deployment().properties.templateLink.uri]"
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "allowedValues": [
+        "Standard_B2ms",
+        "Standard_B2s",
+        "Standard_B4ms"
+      ],
+      "metadata": {
+        "description": "The size of the virtual machine."
+      }
+    }
+  },
+  "variables": {
+    "location": "[resourceGroup().location]",
+    "imagePublisher": "Canonical",
+    "imageOffer": "0001-com-ubuntu-server-jammy",
+    "imageSKU": "22_04-lts",
+    "nicName": "[concat(parameters('vectrName'), '-VMNic')]",
+    "addressPrefix": "10.0.0.0/16",
+    "subnetName": "Subnet",
+    "subnetPrefix": "10.0.0.0/24",
+    "publicIPAddressName": "[concat(parameters('vectrName'), 'IP')]",
+    "publicIPAddressType": "Dynamic",
+    "vmName": "[concat(parameters('vectrName'), '-VM')]",
+    "virtualNetworkName": "[concat(parameters('vectrName'), '-VNET')]",
+    "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('subnetName'))]",
+    "networkSecurityGroupName": "[concat(parameters('vectrName'), '-NSG')]",
+    "scriptsDir": "scripts",
+    "provisionScriptFileName": "vectr-vm-provision.sh",
+    "provisionScriptFileLocation": "[concat(uri(parameters('_artifactsLocation'), concat(variables('scriptsDir'), '/', variables('provisionScriptFileName'))))]",
+    "sourceAddressesVar" : "[split(replace(parameters('sourceAddresses'), ' ', ''), ',')]"
+  },
+  "resources": [{
+    "apiVersion": "2015-06-15",
+    "type": "Microsoft.Network/publicIPAddresses",
+    "name": "[variables('publicIPAddressName')]",
+    "location": "[variables('location')]",
+    "properties": {
+      "publicIPAllocationMethod": "[variables('publicIPAddressType')]",
+      "dnsSettings": {
+        "domainNameLabel": "[parameters('vectrName')]"
+      }
+    }
+  },
+    {
+      "comments": "Default Network Security Group for template",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('networkSecurityGroupName')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "securityRules": [{
+          "name": "vpn-allow-22",
+          "properties": {
+            "priority": 1000,
+            "access": "Allow",
+            "direction": "Inbound",
+            "destinationPortRange": "22",
+            "protocol": "Tcp",
+            "sourceAddressPrefixes": "[variables('sourceAddressesVar')]",
+            "sourcePortRange": "*",
+            "destinationAddressPrefix": "*"
+          }
+        },
+          {
+            "name": "vpn-allow-443",
+            "properties": {
+              "priority": 1002,
+              "access": "Allow",
+              "direction": "Inbound",
+              "destinationPortRange": "443",
+              "protocol": "Tcp",
+              "sourceAddressPrefixes": "[variables('sourceAddressesVar')]",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2015-06-15",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [{
+          "name": "[variables('subnetName')]",
+          "properties": {
+            "addressPrefix": "[variables('subnetPrefix')]",
+            "networkSecurityGroup": {
+              "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+            }
+          }
+        }]
+      }
+    },
+    {
+      "apiVersion": "2015-06-15",
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[variables('nicName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [{
+          "name": "ipconfig1",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
+            "publicIPAddress": {
+              "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('publicIPAddressName'))]"
+            },
+            "subnet": {
+              "id": "[variables('subnetRef')]"
+            }
+          }
+        }]
+      }
+    },
+    {
+      "apiVersion": "2017-03-30",
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[variables('vmName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('vmName')]",
+          "adminUsername": "ubuntu",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('imagePublisher')]",
+            "offer": "[variables('imageOffer')]",
+            "sku": "[variables('imageSKU')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "[concat(parameters('vectrName'),'VM','_OSDisk')]",
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [{
+            "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+          }]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "name": "[concat(variables('vmName'),'/provisionscript')]",
+      "apiVersion": "2015-06-15",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines/', variables('vmName'))]"
+      ],
+      "properties": {
+        "publisher": "Microsoft.Azure.Extensions",
+        "type": "CustomScript",
+        "typeHandlerVersion": "2.0",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "fileUris": [
+            "[variables('provisionScriptFileLocation')]"
+          ]
+        },
+        "protectedSettings": {
+          "commandToExecute": "[concat('sh ', variables('provisionScriptFileName'), ' ', parameters('vectrName'), ' ', variables('location'))]"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "vectrUrl": {
+      "type": "string",
+      "value": "[concat('https://', parameters('vectrName'), '.', variables('location'), '.cloudapp.azure.com')]"
+    }
+  }
+}
